@@ -1,5 +1,4 @@
 import csv
-import time
 from dataclasses import dataclass, astuple
 from urllib.parse import urljoin
 
@@ -8,6 +7,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import (
+    TimeoutException,
+    NoSuchElementException,
+)
 
 
 BASE_URL = "https://webscraper.io/"
@@ -24,7 +27,7 @@ class Product:
 
 
 def setup_driver() -> webdriver.Chrome:
-    """Create Selenium driver in headless mode."""
+    """Create Selenium Chrome driver in headless mode."""
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--window-size=1920,1080")
@@ -35,13 +38,14 @@ def setup_driver() -> webdriver.Chrome:
     return driver
 
 def accept_cookies(driver: webdriver.Chrome) -> None:
-    """Click Accept Cookies button if appears."""
+    """Click Accept Cookies button if it appears."""
     try:
         button = WebDriverWait(driver, 3).until(
             EC.element_to_be_clickable((By.ID, "cookieBannerButton"))
         )
         button.click()
-    except:
+    except TimeoutException:
+        # Cookie banner did not appear
         pass
 
 def parse_products_on_page(driver: webdriver.Chrome) -> list[Product]:
@@ -53,6 +57,7 @@ def parse_products_on_page(driver: webdriver.Chrome) -> list[Product]:
     for card in cards:
         title = card.find_element(By.CLASS_NAME, "title").get_attribute("title")
         description = card.find_element(By.CLASS_NAME, "description").text
+
         price_text = card.find_element(By.CLASS_NAME, "price").text
         price = float(price_text.replace("$", ""))
 
@@ -73,37 +78,45 @@ def parse_products_on_page(driver: webdriver.Chrome) -> list[Product]:
 
     return products
 
-def load_all_products_from_category(driver: webdriver.Chrome, url: str) -> list[Product]:
+def load_all_products_from_category(
+    driver: webdriver.Chrome,
+    url: str,
+) -> list[Product]:
     """
-    Load full category including pagination with 'More' button.
+    Load all products from category including pagination via 'More' button.
     """
     driver.get(url)
     accept_cookies(driver)
 
-    all_products = []
-
+    # Click "More" button until it disappears
     while True:
-        time.sleep(1)
-        all_products = parse_products_on_page(driver)
-
         try:
             more_button = driver.find_element(By.CSS_SELECTOR, "button.btn.btn-primary")
+
             if more_button.is_displayed():
                 driver.execute_script("arguments[0].click();", more_button)
-                time.sleep(1)
+
+                # Wait until previous button becomes stale (page updated)
+                WebDriverWait(driver, 5).until(
+                    EC.staleness_of(more_button)
+                )
             else:
                 break
-        except:
+
+        except NoSuchElementException:
+            # No more button → all products loaded
             break
 
-    return all_products
+    # Parse only once after all products loaded
+    return parse_products_on_page(driver)
 
 def save_to_csv(filename: str, products: list[Product]) -> None:
-    """Save products to csv."""
+    """Save list of products to CSV file."""
     with open(filename, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(Product.__annotations__.keys())
         writer.writerows([astuple(product) for product in products])
+
 
 def get_all_products() -> None:
     driver = setup_driver()
