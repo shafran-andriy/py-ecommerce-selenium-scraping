@@ -26,7 +26,7 @@ class Product:
 def setup_driver() -> webdriver.Chrome:
     """Create Selenium driver in headless mode."""
     options = Options()
-    options.add_argument("--headless=new")  # headless mode
+    options.add_argument("--headless=new")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-blink-features=AutomationControlled")
 
